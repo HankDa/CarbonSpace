@@ -10,12 +10,11 @@ class TemperatureDataDownloader:
     def __init__(self):
         self.cds_client = cdsapi.Client()
         self.downloaded_tar = []
-        # {month_1: [nc_file_names_1, ...], month_2: [nc_file_names_2, ...], ...}
+        # {month-year: [nc_file_names_1, ...], month-year: [nc_file_names_2, ...], ...}
         self.nc_file_names_by_month = {}
 
     def download_temperature_data(self, bbox: list, start_date: datetime, end_date: datetime):
         list_days_of_month = self._list_days_of_month(start_date, end_date)
-
         for month, year in list_days_of_month:
             try:
                 self.cds_client.retrieve(
@@ -31,11 +30,12 @@ class TemperatureDataDownloader:
                         ],
                         'format': 'tgz',
                     },
-                    f'download_batch_{year}-{month}.tar.gz'
+                    f'{month}-{year}.tar.gz'
                 )
-                self.downloaded_tar.append(f'download_batch_{year}-{month}.tar.gz')
+                self.nc_file_names_by_month[f'{month}-{year}'] = []
             except Exception as e:
                 print(f'Error downloading the data: {e}')
+        print(f'self.nc_file_names_by_month: {self.nc_file_names_by_month}')
 
     def _list_days_of_month(self, start_date: datetime, end_date: datetime) -> dict:
         # Implement the logic to list the days of a month
@@ -55,27 +55,34 @@ class TemperatureDataDownloader:
         return date_dict
 
     def list_fileName(self):
-        for tar_name in self.downloaded_tar: 
-            with tarfile.open(tar_name, 'r:gz') as tar:
+        for tar_name in self.nc_file_names_by_month: 
+
+            with tarfile.open(tar_name+'.tar.gz', 'r:gz') as tar:
                 # List all file names in the .tar.gz file
                 file_names = tar.getnames()
+
+                # uncompress the .tar.gz file
+                tar.extractall(tar_name)
 
             # Group the file names by month
             file_names = sorted(file_names)
             for file_name in file_names:
                 # Extract the date portion from the file name
                 date_str = file_name.split("_")[3]
+
                 # Convert the date string to a datetime object
                 date = datetime.strptime(date_str, "%Y%m%d")
-
+                
                 # Get the month and year as a key
                 month_year = date.strftime("%m-%Y")
-
+                
                 # Add the file name to the corresponding month in the dictionary
                 if month_year in self.nc_file_names_by_month:
                     self.nc_file_names_by_month[month_year].append(file_name)
+                    
                 else:
                     self.nc_file_names_by_month[month_year] = [file_name]
+        
         # Print the file names grouped by month
         for month, names in self.nc_file_names_by_month.items():
             print(month)
@@ -97,34 +104,34 @@ class GeoJSONProcessor:
         except Exception as e:
             raise Exception(f'Error loading the GeoJSON file: {e}')
         # validating the gdf
+        print(self.gdf)
 
     def calculate_bbox(self):
         # Implement the logic to calculate the bbox covering all features
         # minx, miny, maxx, maxy (W,S,E,N)
         self.bbox = self.gdf.total_bounds
-        print(self.bbox)
         
     def find_feature_centroids(self):
         # Implement the logic to find centroids for each shape in the GeoJSON file
         self.centroids = self.gdf.geometry.centroid
     
-    # TODO: unzip the file or access it directly? 
+    # ISSUE: as the Horizontal resolution = 0.1° x 0.1°, the nearest points will be same for each centroid point.
     def identify_nearest_datapoint(self, nc_file_names_by_month: dict):
         # Implement the logic to identify the nearest available temperature datapoint
         for month in nc_file_names_by_month:
             for file_name in nc_file_names_by_month[month]:
-                dataset = nc.Dataset(file_name)
+                dataset = nc.Dataset(month+'/'+file_name)
                 # Get the latitude and longitude variables
                 lat = dataset.variables['lat'][:]
                 lon = dataset.variables['lon'][:]
                 # argmin() Return int position of the smallest value in the Series.
-                for centroid in centroids:
+                for centroid in self.centroids:
                     lat_index = (abs(lat - centroid.y)).argmin()
                     lon_index = (abs(lon - centroid.x)).argmin()
                     # temperature of location
                     temperature_value = dataset['Temperature_Air_2m_Mean_24h'][0][lat_index][lon_index]
                     print("Nearest: {} {} Centroid Point: {}, Temperature: {}".format(lat[lat_index], lon[lon_index], centroid, temperature_value))
-                # TODO: save the nearest point and temperture to centroid point
+                # TODO: save the nearest point and temperture to centroid point`
 
     def aggregate_monthly_average(self):
         # Implement the logic to aggregate temperature values to monthly average
@@ -158,8 +165,8 @@ if __name__ == '__main__':
     bbox = geojson_processor.calculate_bbox()
     start_date = datetime(2023, 1, 1)
     end_date = datetime.now()
-    downloader.download_temperature_data(geojson_processor.bbox, start_date, end_date)
-    downloader.list_fileName()
+    # downloader.download_temperature_data(geojson_processor.bbox, start_date, end_date)
+    # downloader.list_fileName()
 
     # Process and update the GeoJSON file with temperature data
     # geojson_processor.identify_nearest_datapoint(downloader.nc_file_names_by_month)
