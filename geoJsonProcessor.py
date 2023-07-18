@@ -20,9 +20,6 @@ class GeoJSONProcessor:
         self.gdf: gpd.GeoDataFrame = self._load_geojson_file()
         self.bbox: list = self._calculate_bbox()
         self.df_centroids: pd.DataFrame = self._find_features_centroids()
-        
-        # initialize monthly average temperature dataframe to easily check if there are missing values
-        # (e.g. if there are no data for a given month)
         self.df_monthly_average_temp = pd.DataFrame(self.df_centroids["name"], columns=['name']+months)
     
     def __str__(self):
@@ -84,9 +81,9 @@ class GeoJSONProcessor:
             pd.DataFrame: DataFrame containing the feature names and their centroids.
 
         """
-        df = pd.DataFrame(columns=['name', 'centroid', 'nearest_point', 'nearest_idx'])
-        centroids = self.gdf.geometry.centroid.rename("centroid")
-        df = pd.concat([self.gdf['name'], centroids], axis=1)
+        centroids = self.gdf.geometry.centroid
+        df = pd.DataFrame({'name': self.gdf['name'], 'centroid': centroids})
+
         return df
 
     def get_monthly_avg_temperature(self, nc_file_list_by_month: dict, month: str):
@@ -95,11 +92,13 @@ class GeoJSONProcessor:
 
         Args:
             nc_file_list_by_month (dict): Dictionary containing the list of netCDF file names by month.
-            month (str): Month for which to calculate the average temperature.
+            - e.g. {'202301':[nc_file_name,...],'202302':[nc_file_name]}
 
+            month (str): Month for which to calculate the average temperature.
         """
-        # 
+        # daily_temperature_by_month -> {month_1:{centroid_1:[temp_d1,temp_d2....],centroid_2:[...] }}
         daily_temperature_by_month = self._get_daily_temperature_by_month(nc_file_list_by_month, month)
+        # self.df_monthly_average_temp[month] -> {month:[avg_temp_centroid_i,...],month_2:[avg_temp_centroid_i,...]} 
         self.df_monthly_average_temp[month] = self._aggregate_monthly_average(daily_temperature_by_month, month)
 
     def _get_daily_temperature_by_month(self, nc_file_list_by_month: dict, month: str) -> dict:
@@ -114,16 +113,31 @@ class GeoJSONProcessor:
             dict: Dictionary with daily temperature values for each centroid.
 
         """
+        # {month:{controid_id: []}}
         daily_temperature_by_month = defaultdict(lambda: defaultdict(list))        
+        
+        # iterate the files of the target month
         for file_name in nc_file_list_by_month[month]:
+        
+            # load temperature dataset 
             dataset = nc.Dataset(month+'/'+file_name)
+
+            # get lat and lon list from the dataset
             lat = dataset.variables['lat'][:]
             lon = dataset.variables['lon'][:]
-            
+
+            # get the daily temperature of each centroid   
             for centroid_idx in range(len(self.df_centroids.centroid)):
+
+                # Find nearest datapoints' index of features' centroid
                 nearest_idx = self._identify_nearest_datapoint(lat, lon, centroid_idx)
+                
+                # Fetch daily temperature data from downloaded data with nearest location index and convert it to celsius
                 temperature_value = dataset['Temperature_Air_2m_Mean_24h'][0][nearest_idx[1]][nearest_idx[0]] - 273.15
+                
+                # Update the dictionary: {month_1:{centroid_1:[temp_d1,temp_d2....],centroid_2:[...] }}
                 daily_temperature_by_month[month][centroid_idx].append(temperature_value)
+
         return daily_temperature_by_month
         
     def _identify_nearest_datapoint(self, lat, lon, centroid_idx: int) -> tuple:
@@ -137,13 +151,20 @@ class GeoJSONProcessor:
 
         Returns:
             tuple: Indices of the nearest datapoint (lon_index, lat_index).
-
+        
+        Issue:
+            the horizontal resolution(0.1° x 0.1°) is not enough to map each centroids with different point.
         """
         centroid_point = self.df_centroids.centroid.iloc[centroid_idx]
+        
+        # find the nearest lat, lon index for the centroid
         lat_index = (abs(lat - centroid_point.y)).argmin()
         lon_index = (abs(lon - centroid_point.x)).argmin()
+        
+        # update the information to centorid df
         self.df_centroids.at[centroid_idx, 'nearest_point'] = Point(lon[lon_index], lat[lat_index])
         self.df_centroids.at[centroid_idx, 'nearest_idx'] = Point(lon_index, lat_index)
+
         return (lon_index, lat_index)
 
     def _aggregate_monthly_average(self, daily_temperature_by_month: dict, month: str) -> pd.Series:
@@ -172,7 +193,7 @@ class GeoJSONProcessor:
             None.
 
         """
-        self.gdf['monthly_average_temp'] = self.df_monthly_average_temp.mean(axis=1)
+        self.gdf = pd.merge(self.gdf, self.df_monthly_average_temp, on='name', how='outer')
 
     def write_updated_geojson_file(self):
         """

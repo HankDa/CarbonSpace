@@ -8,9 +8,10 @@ class TemperatureDataDownloader:
 
     def __init__(self):
         self.cds_client = cdsapi.Client()
+        # {'202301':[nc_file_name,...],'202302':[nc_file_name]}
         self.nc_file_list_by_month = {}
 
-    def download_temperature_data(self, bbox: list, year: str, month: str, days: list[str]):
+    def download_temperature_data(self, bbox: list, year: str, month: str, days: list[str])->str:
         """
         Download temperature data for a specific month and days within that month.
 
@@ -19,6 +20,9 @@ class TemperatureDataDownloader:
             year (str): Year.
             month (str): Month.
             days (list[str]): List of days within the month.
+        
+        Return:
+            str: the month of downloaded data. e.g. "202301"
 
         """
         try:
@@ -52,8 +56,12 @@ class TemperatureDataDownloader:
         """
         try: 
             with tarfile.open(tar_name+'.tar.gz', 'r:gz') as tar:
+                # list the filenames
                 file_names = tar.getnames()
+            
+                # uncompress the file
                 tar.extractall(tar_name)
+            # remove the tar file
             os.remove(tar_name + '.tar.gz')
             file_names = sorted(file_names)
             self.nc_file_list_by_month[tar_name] = file_names

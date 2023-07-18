@@ -34,6 +34,7 @@ def main_multiThread(file_path: str):
     start_date = datetime(2023, 1, 1)
     end_date = datetime.now()
 
+    # {(year,month):[day1,day2...]}
     days_of_month_list = list_days_of_month(start_date, end_date)
     # months = ["202301", "202302", ...]
     months = [year + month for year, month in days_of_month_list.keys()]
@@ -41,17 +42,14 @@ def main_multiThread(file_path: str):
     downloader = TemperatureDataDownloader()
     geojson_processor = GeoJSONProcessor(file_path, months)
 
+    # ISSUE: The api seems like not accept the bbox with float number.
     bbox = geojson_processor.bbox
-    # The api seems like not accept the bbox with float number.
     bbox_for_downloader = [ceil(bbox[3]), floor(bbox[0]), floor(bbox[1]), ceil(bbox[2])]
-    max_threads = os.cpu_count()
-
-    # Download data: I/O-bound -> Using multi-threading to improve the performance.
     
     start_time = time.time()
-    # Create a ThreadPoolExecutor with the specified max_workers (limited threads)
+    # Download data: I/O-bound -> Using multi-threading to improve the performance.
     # Note: used limited threads to prevent memory ran out.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
         # Submit tasks to the ThreadPoolExecutor
         futures = []
         for year, month in days_of_month_list:
@@ -104,6 +102,7 @@ def main_singleThread(file_path):
     bbox = geojson_processor.bbox
     bbox_for_download = [ceil(bbox[3]), floor(bbox[0]), floor(bbox[1]), ceil(bbox[2])]
     
+    # As the csd api has download items limitation, divide the request by month. 
     download_times = {}
     for year, month in days_of_month_list:
         start_time = time.time()
@@ -134,7 +133,7 @@ def main_singleThread(file_path):
     total_download_time = 0
     for (year, month), download_time in download_times.items():
         total_download_time += download_time
-        print(f"Download Time for {month}-{year}: {download_time:.2f} seconds")
+        print(f"Download Time for {year}{month}: {download_time:.2f} seconds")
     print(f"-> Total Download Time: {total_download_time:.2f} seconds")
     print(f"{'='*50}")
     print(f"* Processing Time:")
