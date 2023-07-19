@@ -10,6 +10,14 @@ The project implements a program that calculates the monthly 2m temperatures for
 ### CSD API
 - refering to https://cds.climate.copernicus.eu/api-how-to
 
+## Structure:
+- GeoJSONProcessor.py
+Take geoJson file as input and get the monthly average temperatures for each features.
+- TemperatureDataDownloader.py
+Download the temperature data by cdsapi and list the downloaded files.
+- app.py
+Run the two module in paralel, print log and output geoJson file. 
+
 ## How to use
 
 ```
